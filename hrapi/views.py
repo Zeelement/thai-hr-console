@@ -4,13 +4,15 @@ from decimal import Decimal
 from pathlib import Path
 
 from django.conf import settings
-from django.contrib.auth import authenticate
+from django.contrib.auth import authenticate, get_user_model
+from django.contrib.auth.password_validation import validate_password
+from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import transaction
 from django.http import HttpResponse, JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 from django.views.static import serve
 
-from .auth import issue_token, require_jwt
+from .auth import issue_token, require_jwt, unauthorized
 from .models import (
     AppSetting,
     Attendance,
@@ -79,6 +81,39 @@ def login(request):
             "expiresIn": int(settings.JWT_EXPIRE_SECONDS),
         }
     )
+
+
+@csrf_exempt
+@require_jwt
+def change_password(request):
+    """当前登录用户修改自身密码：校验原密码 + 复用既有密码强度校验器。"""
+    if request.method != "POST":
+        return JsonResponse({"code": 405, "message": "Method Not Allowed"}, status=405)
+    try:
+        body = json.loads(request.body.decode("utf-8"))
+    except (ValueError, UnicodeDecodeError):
+        return JsonResponse({"code": 400, "message": "请求格式不正确"}, status=400)
+
+    user = get_user_model().objects.filter(pk=request.jwt_user.get("uid")).first()
+    if user is None or not user.is_active:
+        return unauthorized("用户不存在或已停用")
+
+    old_password = str(body.get("oldPassword", ""))
+    new_password = str(body.get("newPassword", ""))
+    if not user.check_password(old_password):
+        return JsonResponse({"code": 400, "message": "原密码错误"}, status=400)
+    if not new_password:
+        return JsonResponse({"code": 400, "message": "新密码不能为空"}, status=400)
+    if old_password == new_password:
+        return JsonResponse({"code": 400, "message": "新密码不能与原密码相同"}, status=400)
+    try:
+        validate_password(new_password, user)
+    except DjangoValidationError as exc:
+        return JsonResponse({"code": 400, "message": "；".join(exc.messages)}, status=400)
+
+    user.set_password(new_password)
+    user.save(update_fields=["password"])
+    return JsonResponse({"ok": True})
 
 
 def _serialize_state():

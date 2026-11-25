@@ -15,6 +15,11 @@
       var busy = Vue.ref(false);
       var loginError = Vue.ref('');
       var loginForm = Vue.reactive({ username: '', password: '' });
+      var pwOpen = Vue.ref(false);
+      var pwBusy = Vue.ref(false);
+      var pwError = Vue.ref('');
+      var pwNotice = Vue.ref('');
+      var pwForm = Vue.reactive({ oldPassword: '', newPassword: '', confirmPassword: '' });
       var navHtml = Vue.ref('');
       var viewHtml = Vue.ref('');
       var lang = Vue.ref('zh');
@@ -61,6 +66,7 @@
 
       async function doLogin() {
         loginError.value = '';
+        pwNotice.value = '';
         if (!loginForm.username || !loginForm.password) {
           loginError.value = '请输入用户名和密码';
           return;
@@ -85,11 +91,53 @@
         window.location.reload();
       }
 
+      function openPasswordModal() {
+        pwError.value = '';
+        pwForm.oldPassword = '';
+        pwForm.newPassword = '';
+        pwForm.confirmPassword = '';
+        pwOpen.value = true;
+      }
+
+      function closePasswordModal() { pwOpen.value = false; }
+
+      async function doChangePassword() {
+        pwError.value = '';
+        if (!pwForm.oldPassword || !pwForm.newPassword || !pwForm.confirmPassword) {
+          pwError.value = '请填写原密码、新密码和确认密码';
+          return;
+        }
+        if (pwForm.newPassword !== pwForm.confirmPassword) {
+          pwError.value = '两次输入的新密码不一致';
+          return;
+        }
+        pwBusy.value = true;
+        try {
+          await api.changePassword(pwForm.oldPassword, pwForm.newPassword);
+          pwOpen.value = false;
+          api.clearToken();
+          authenticated.value = false;
+          ready.value = false;
+          loginForm.username = '';
+          loginForm.password = '';
+          pwNotice.value = '密码已修改，请使用新密码重新登录';
+        } catch (e) {
+          if (e.status === 401) pwOpen.value = false;
+          pwError.value = (e.data && e.data.message) || ('修改失败：' + e.message);
+        } finally {
+          pwBusy.value = false;
+        }
+      }
+
       return {
         authenticated: authenticated, ready: ready, busy: busy,
         loginError: loginError, loginForm: loginForm,
+        pwOpen: pwOpen, pwBusy: pwBusy, pwError: pwError,
+        pwNotice: pwNotice, pwForm: pwForm,
         navHtml: navHtml, viewHtml: viewHtml, lang: lang, top: top,
-        doLogin: doLogin, doLogout: doLogout
+        doLogin: doLogin, doLogout: doLogout,
+        openPasswordModal: openPasswordModal, closePasswordModal: closePasswordModal,
+        doChangePassword: doChangePassword
       };
     },
 
@@ -99,6 +147,7 @@
       '    <div class="login-logo">HR</div>',
       '    <div class="login-title">人事工作台</div>',
       '    <div class="login-sub">泰国 · 罗勇工厂</div>',
+      '    <div v-if="pwNotice" class="login-sub" style="color:#0f7a55;margin:-12px 0 16px">{{ pwNotice }}</div>',
       '    <label class="login-label">用户名',
       '      <input class="input" v-model="loginForm.username" autocomplete="username" @keyup.enter="doLogin">',
       '    </label>',
@@ -132,6 +181,7 @@
       '      <div class="topbar-right">',
       '        <span class="tiny muted" id="todayLabel">{{ top.today }}</span>',
       '        <button class="btn btn-sm" id="backupBtn" data-act="backup">{{ top.backup }}</button>',
+      '        <button class="btn btn-sm" @click="openPasswordModal">修改密码</button>',
       '        <button class="btn btn-sm" data-act="logout" @click="doLogout">退出</button>',
       '      </div>',
       '    </header>',
@@ -139,6 +189,25 @@
       '  </div>',
       '</div>',
       '<div id="modalRoot"></div>',
+      '<div v-if="pwOpen" class="overlay">',
+      '  <div class="modal">',
+      '    <div class="modal-head"><div class="modal-title">修改密码</div>',
+      '      <button class="close-x" @click="closePasswordModal">×</button></div>',
+      '    <div class="modal-body">',
+      '      <div class="field"><label>原密码</label>',
+      '        <input class="input" type="password" v-model="pwForm.oldPassword" autocomplete="current-password"></div>',
+      '      <div class="field"><label>新密码</label>',
+      '        <input class="input" type="password" v-model="pwForm.newPassword" autocomplete="new-password"></div>',
+      '      <div class="field"><label>确认新密码</label>',
+      '        <input class="input" type="password" v-model="pwForm.confirmPassword" autocomplete="new-password" @keyup.enter="doChangePassword"></div>',
+      '      <div v-if="pwError" class="login-error">{{ pwError }}</div>',
+      '    </div>',
+      '    <div class="modal-foot">',
+      '      <button class="btn" @click="closePasswordModal">取消</button>',
+      '      <button class="btn btn-primary" :disabled="pwBusy" @click="doChangePassword">{{ pwBusy ? \'提交中…\' : \'确认修改\' }}</button>',
+      '    </div>',
+      '  </div>',
+      '</div>',
       '<div class="toast" id="toast"></div>'
     ].join('\n')
   });

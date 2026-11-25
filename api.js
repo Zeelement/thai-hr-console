@@ -69,6 +69,12 @@
       setToken(data.token);
       return data;
     },
+    changePassword: function (oldPassword, newPassword) {
+      return request('/api/auth/change-password/', {
+        method: 'POST',
+        body: { oldPassword: oldPassword, newPassword: newPassword }
+      });
+    },
     getState: function () { return request('/api/state/'); },
     saveState: function (state) {
       return request('/api/state/', { method: 'PUT', body: state });
